@@ -84,6 +84,13 @@ main{padding:6px 16px calc(var(--nav-h) + var(--safe-b) + 34px);max-width:640px;
 .hero .big{font-size:34px;font-weight:800;letter-spacing:-.035em;margin:4px 0 12px;line-height:1.1}
 .hero-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-top:12px;border-top:1px dashed var(--line)}
 .hero-row .k{font-size:12px;color:var(--muted)} .hero-row .v{font-weight:700;font-size:15px}
+.hero-real{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-top:14px;border-top:1px dashed var(--line)}
+.hero-real .lbl .dot{width:8px;height:8px;border-radius:50%}
+.hero .mid{font-size:26px;font-weight:800;letter-spacing:-.03em;line-height:1.15;margin-top:3px}
+.hero .when{font-weight:500;color:var(--muted)}
+.hero-cta{display:flex;align-items:center;gap:8px;width:100%;margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--grad-soft);font-size:13px;color:var(--ink-2);text-align:left}
+.hero-cta b{margin-left:auto;color:var(--brand-2);white-space:nowrap}
+.hero-cta svg{width:16px;height:16px;color:var(--brand-2)}
 .tag{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;padding:5px 10px;border-radius:99px}
 .tag svg{width:14px;height:14px}
 .tag.good{background:var(--good-bg);color:var(--good)} .tag.warn{background:var(--warn-bg);color:var(--warn)} .tag.bad{background:var(--bad-bg);color:var(--bad)} .tag.neutral{background:#f1f5f9;color:var(--ink-2)}
@@ -324,7 +331,7 @@ svg.chart text{font-family:inherit;font-size:10.5px;fill:var(--muted)}
          'api'  = versi aplikasi penuh/PWA (fetch ke Apps Script + Kunci API)
          'demo' = data contoh di HP, tanpa spreadsheet
    ===================================================================== */
-const VERSI = '1.0';
+const VERSI = '1.1';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem('kasku_' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('kasku_' + k, JSON.stringify(v)); } catch (e) {} },
@@ -499,7 +506,10 @@ const Backend = {
     try {
       resp = await fetch(cfg.url, { method: 'POST', redirect: 'follow', signal: ctl.signal, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ kunci: cfg.kunci, aksi, data: data || {} }) });
     } catch (e) {
-      const err = new Error(ctl.signal.aborted ? 'Server terlalu lama merespons.' : 'Tidak ada koneksi internet.'); err.offline = !ctl.signal.aborted || !navigator.onLine; throw err;
+      const msg = ctl.signal.aborted ? 'Server terlalu lama merespons.'
+        : !navigator.onLine ? 'Tidak ada koneksi internet.'
+        : 'Tidak bisa menghubungi Apps Script. Pastikan URL API berasal dari deployment kedua (akses "Siapa saja", berakhiran /exec), lalu coba lagi.';
+      const err = new Error(msg); err.offline = true; throw err;
     } finally { clearTimeout(to); }
     let j; try { j = await resp.json(); } catch (e) { throw new Error('Respons server tidak dikenali. Periksa URL API (harus diakhiri /exec) dan akses "Siapa saja".'); }
     if (!j.ok) throw new Error(j.error || 'Gagal.');
@@ -575,6 +585,10 @@ function deltaHTML(cur, prev, naikBaik, label) {
 }
 function saldoTerakhir(sampai) {
   for (let i = S.rows.length - 1; i >= 0; i--) { const r = S.rows[i]; if (r.tanggal <= sampai && r.tertulis != null) return r; }
+  return null;
+}
+function realTerakhir(sampai) {
+  for (let i = S.rows.length - 1; i >= 0; i--) { const r = S.rows[i]; if (r.tanggal <= sampai && r.real != null) return r; }
   return null;
 }
 function selisihTag(r, kecil) {
@@ -717,14 +731,18 @@ function viewBeranda() {
       <span class="t-v num">${v == null ? ic('plus', '') + ' Isi sekarang' : rp(v)}</span></button>`;
   };
   if (!S.rows.length) return chipsPeriode() + `<div class="card" style="margin-top:10px">${kosongHTML('Belum ada catatan', 'Mulai catat pemasukan pagi hari ini. Cuma butuh beberapa detik.', 'Catat sekarang')}</div>`;
+  const real = realTerakhir(p.to), kapan = iso => iso === t ? 'hari ini' : 'per ' + esc(tglPendek(iso));
+  const realHariIniKosong = p.to === t && !(rT && rT.real != null);
   return `${chipsPeriode()}
     <section class="hero" aria-label="Saldo">
-      <div class="lbl">${ic('wallet')} Saldo tertulis ${last ? (last.tanggal === t ? 'hari ini' : 'per ' + esc(tglPendek(last.tanggal))) : ''}</div>
+      <div class="lbl">${ic('wallet')} Saldo tertulis <span class="when">${last ? kapan(last.tanggal) : ''}</span></div>
       <div class="big num" id="heroBig" data-v="${last ? last.tertulis : 0}">${last ? rp(last.tertulis) : '—'}</div>
-      <div class="hero-row">
-        <div><div class="k">Total Real</div><div class="v num">${last && last.real != null ? rp(last.real) : '—'}</div></div>
-        ${selisihTag(last)}
+      <div class="hero-real">
+        <div><div class="lbl"><i class="dot" style="background:var(--s-real)"></i>Total Real <span class="when">${real ? kapan(real.tanggal) : ''}</span></div>
+          <div class="mid num" id="heroReal" data-v="${real ? real.real : 0}">${real ? rp(real.real) : '—'}</div></div>
+        ${real ? selisihTag(real) : '<span class="tag neutral">Belum pernah diisi</span>'}
       </div>
+      ${realHariIniKosong ? `<button class="hero-cta" data-isireal>${ic('cash')}<span>Total Real hari ini belum diisi</span><b>Isi sekarang</b></button>` : ''}
     </section>
     ${kurang.length ? `<div class="nudge">${ic('clock')}<div><b>Kemarin belum lengkap</b><br>${kurang.map(k => FIELD[k].pendek).join(' & ')} belum diisi</div><button data-lengkapi="${kurang[0]}">Lengkapi</button></div>` : ''}
     <div class="sec-h"><h2>Catatan hari ini</h2><span class="muted" style="font-size:12.5px">${esc(tglSedang(t))}</span></div>
@@ -751,11 +769,12 @@ function bindBeranda() {
   const lk = $('[data-lengkapi]'); if (lk) lk.onclick = () => bukaInput({ field: lk.dataset.lengkapi, tanggal: tambahHari(hariIni(), -1) });
   $$('[data-go]').forEach(a => a.onclick = e => { e.preventDefault(); pindahTab(a.dataset.go); });
   const ks = $('[data-kosong]'); if (ks) ks.onclick = () => bukaInput();
-  hitungNaik($('#heroBig'));
+  const ir = $('[data-isireal]'); if (ir) ir.onclick = () => bukaInput({ field: 'real', tanggal: hariIni() });
+  hitungNaik($('#heroBig'), '_heroDone'); hitungNaik($('#heroReal'), '_realDone');
 }
-function hitungNaik(el) {
+function hitungNaik(el, kunci) {
   if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const to = Number(el.dataset.v); if (!to || S._heroDone === to) return; S._heroDone = to;
+  const to = Number(el.dataset.v); if (!to || S[kunci] === to) return; S[kunci] = to;
   const t0 = performance.now(), dur = 650;
   const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = rp(to * e); if (k < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
